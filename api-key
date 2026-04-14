@@ -1,0 +1,7 @@
+{
+  "message": "Merchant registered successfully",
+  "merchant_id": "30af6501-fc89-4450-b9f6-7deafc65517b",
+  "name": "TestAI API",
+  "api_key": "tl_1ae5c544830e696f38574d9608bc640d91bbc6e4908306029aef8dfa58c0fc94",
+  "warning": "Save your api_key — it will not be shown again"
+}
