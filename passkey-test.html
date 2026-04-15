@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SynthPay — Passkey Test</title>
+<script src="https://unpkg.com/@simplewebauthn/browser@9.0.1/dist/bundle/index.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #050508;
+    color: #e2e8f0;
+    font-family: monospace;
+    padding: 40px;
+    min-height: 100vh;
+  }
+  h1 {
+    color: #00e5ff;
+    font-size: 22px;
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+  }
+  .sub {
+    color: #334155;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 40px;
+  }
+  .section {
+    background: #0f0f1a;
+    border: 1px solid #1a1a2e;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .section h2 {
+    color: #fff;
+    font-size: 14px;
+    margin-bottom: 16px;
+    letter-spacing: 1px;
+  }
+  button {
+    background: #00e5ff;
+    color: #050508;
+    border: none;
+    padding: 12px 28px;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  button.purple { background: #7c3aed; color: white; }
+  button.green  { background: #10b981; color: white; }
+  .log {
+    margin-top: 16px;
+    background: #03030a;
+    border: 1px solid #1a1a2e;
+    border-radius: 4px;
+    padding: 14px;
+    font-size: 11px;
+    line-height: 1.8;
+    min-height: 60px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .ok  { color: #10b981; }
+  .err { color: #ef4444; }
+  .inf { color: #00e5ff; }
+  .dim { color: #334155; }
+  .token-box {
+    background: #03030a;
+    border: 1px solid #1a1a2e;
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 10px;
+    color: #f59e0b;
+    word-break: break-all;
+    margin-top: 12px;
+    display: none;
+  }
+  .balance-big {
+    font-size: 36px;
+    font-weight: 700;
+    color: #10b981;
+    margin: 8px 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>SynthPay</h1>
+<p class="sub">Passkey Authentication Test · localhost:3000</p>
+
+<!-- REGISTER -->
+<div class="section">
+  <h2>Step 1 — Register New Wallet</h2>
+  <p style="color:#64748b; font-size:12px; margin-bottom:16px;">
+    Creates a new wallet using your device biometric (Windows Hello / Face ID).
+    No email. No password.
+  </p>
+  <button id="btn-register">Create Wallet with Biometric</button>
+  <div class="log" id="log-register"><span class="dim">Waiting...</span></div>
+  <div class="token-box" id="token-register"></div>
+</div>
+
+<!-- LOGIN -->
+<div class="section">
+  <h2>Step 2 — Login with Passkey</h2>
+  <p style="color:#64748b; font-size:12px; margin-bottom:16px;">
+    Sign in using your registered biometric. No password required.
+  </p>
+  <button id="btn-login" class="purple">Login with Biometric</button>
+  <div class="log" id="log-login"><span class="dim">Waiting...</span></div>
+  <div class="token-box" id="token-login"></div>
+</div>
+
+<!-- BALANCE -->
+<div class="section">
+  <h2>Step 3 — Check Wallet Balance</h2>
+  <p style="color:#64748b; font-size:12px; margin-bottom:16px;">
+    Uses JWT from login to fetch your wallet balance.
+  </p>
+  <button id="btn-balance" class="green">Check Balance</button>
+  <div class="log" id="log-balance"><span class="dim">Waiting...</span></div>
+</div>
+
+<script>
+  const API = 'http://localhost:3000'
+  const { startRegistration, startAuthentication } = SimpleWebAuthnBrowser
+
+  let currentToken = null
+  let currentUserId = null
+
+  // ── Helpers ──────────────────────────────────────────────────
+
+  function log(id, msg, type = 'inf') {
+    const el = document.getElementById('log-' + id)
+    const line = document.createElement('span')
+    line.className = type
+    line.textContent = msg + '\n'
+    el.innerHTML = ''
+    el.appendChild(line)
+  }
+
+  function logAppend(id, msg, type = 'dim') {
+    const el = document.getElementById('log-' + id)
+    const line = document.createElement('span')
+    line.className = type
+    line.textContent = msg + '\n'
+    el.appendChild(line)
+    el.scrollTop = el.scrollHeight
+  }
+
+  function showToken(id, token) {
+    const el = document.getElementById('token-' + id)
+    el.style.display = 'block'
+    el.textContent = 'JWT: ' + token
+  }
+
+  // ── Register ─────────────────────────────────────────────────
+
+  document.getElementById('btn-register').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-register')
+    btn.disabled = true
+    log('register', '⟳ Requesting registration challenge...', 'inf')
+
+    try {
+      // Step 1 — Get challenge from server
+      const beginRes = await fetch(API + '/auth/register/begin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+      const { options, temp_user_id } = await beginRes.json()
+      logAppend('register', '✓ Challenge received', 'ok')
+      logAppend('register', '⟳ Triggering biometric prompt...', 'inf')
+
+      // Step 2 — Trigger biometric (Windows Hello / Face ID)
+      const credential = await startRegistration(options)
+      logAppend('register', '✓ Biometric confirmed', 'ok')
+      logAppend('register', '⟳ Verifying with server...', 'inf')
+
+      // Step 3 — Send credential to server
+      const completeRes = await fetch(API + '/auth/register/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          credential,
+          temp_user_id,
+          display_name: 'Test User'
+        })
+      })
+      const result = await completeRes.json()
+
+      if (result.token) {
+        currentToken  = result.token
+        currentUserId = result.user_id
+        logAppend('register', '✓ Wallet created!', 'ok')
+        logAppend('register', '  User ID: ' + result.user_id, 'ok')
+        logAppend('register', '  Balance: $' + result.balance, 'ok')
+        showToken('register', result.token)
+      } else {
+        logAppend('register', '✗ Error: ' + JSON.stringify(result), 'err')
+      }
+
+    } catch (err) {
+      logAppend('register', '✗ ' + err.message, 'err')
+    }
+
+    btn.disabled = false
+  })
+
+  // ── Login ─────────────────────────────────────────────────────
+
+  document.getElementById('btn-login').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-login')
+    btn.disabled = true
+    log('login', '⟳ Requesting authentication challenge...', 'inf')
+
+    try {
+      // Step 1 — Get challenge
+      const beginRes = await fetch(API + '/auth/login/begin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+      const { options } = await beginRes.json()
+      logAppend('login', '✓ Challenge received', 'ok')
+      logAppend('login', '⟳ Triggering biometric prompt...', 'inf')
+
+      // Step 2 — Trigger biometric
+      const credential = await startAuthentication(options)
+      logAppend('login', '✓ Biometric confirmed', 'ok')
+      logAppend('login', '⟳ Verifying with server...', 'inf')
+
+      // Step 3 — Verify with server
+      const completeRes = await fetch(API + '/auth/login/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      })
+      const result = await completeRes.json()
+
+      if (result.token) {
+        currentToken  = result.token
+        currentUserId = result.user_id
+        logAppend('login', '✓ Login successful!', 'ok')
+        logAppend('login', '  User ID: ' + result.user_id, 'ok')
+        logAppend('login', '  Balance: $' + result.balance, 'ok')
+        showToken('login', result.token)
+      } else {
+        logAppend('login', '✗ Error: ' + JSON.stringify(result), 'err')
+      }
+
+    } catch (err) {
+      logAppend('login', '✗ ' + err.message, 'err')
+    }
+
+    btn.disabled = false
+  })
+
+  // ── Balance ───────────────────────────────────────────────────
+
+  document.getElementById('btn-balance').addEventListener('click', async () => {
+    if (!currentToken || !currentUserId) {
+      log('balance', '✗ Login first to get a token', 'err')
+      return
+    }
+
+    log('balance', '⟳ Fetching balance...', 'inf')
+
+    try {
+      const res = await fetch(API + '/users/' + currentUserId + '/balance', {
+        headers: {
+          'Authorization': 'Bearer ' + currentToken,
+          'Content-Type':  'application/json'
+        }
+      })
+      const result = await res.json()
+      logAppend('balance', '✓ Balance: $' + result.balance, 'ok')
+      logAppend('balance', '  User ID: ' + result.user_id, 'ok')
+      logAppend('balance', '  Reputation: ' + result.reputation, 'ok')
+    } catch (err) {
+      logAppend('balance', '✗ ' + err.message, 'err')
+    }
+  })
+</script>
+</body>
+</html>

@@ -8,6 +8,8 @@ import { testConnection } from '../db/index'
 import { merchantRoutes } from './routes/merchants'
 import { userRoutes } from './routes/users'
 import { validateEnv } from './config'
+import { authRoutes } from './routes/auth'
+import { readFileSync } from 'fs'
 
 dotenv.config({ path: resolve(process.cwd(), '.env') })
 
@@ -25,8 +27,10 @@ const start = async () => {
     await server.register(helmet)
 
     await server.register(cors, {
-      origin: process.env.NODE_ENV === 'development' ? '*' : false
-    })
+          origin: process.env.NODE_ENV === 'development'
+            ? ['http://localhost:5173', 'http://localhost:3000']
+            : false
+        })
 
     // Rate limiting registered before routes — critical
     await server.register(rateLimit, {
@@ -58,9 +62,22 @@ const start = async () => {
       }
     })
 
+
+  // Test page — development only
+  if (process.env.NODE_ENV === 'development') {
+    server.get('/test', async (request, reply) => {
+      const html = readFileSync(
+        resolve(process.cwd(), 'passkey-test.html'),
+        'utf-8'
+      )
+      return reply.type('text/html').send(html)
+    })
+  }
+
     // Routes registered AFTER rate limiter
     server.register(merchantRoutes)
     server.register(userRoutes)
+    server.register(authRoutes)
 
     await server.listen({
       port: Number(process.env.PORT) || 3000,

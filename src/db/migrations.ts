@@ -105,5 +105,20 @@ export const runMigrations = async () => {
     console.log('✅ topups table created')
   }
 
+  // 7. CHALLENGES — one-time WebAuthn challenges (expire in 5 minutes)
+  const hasChallenges = await db.schema.hasTable('challenges')
+  if (!hasChallenges) {
+    await db.schema.createTable('challenges', (t) => {
+      t.uuid('id').primary().defaultTo(db.raw('gen_random_uuid()'))
+      t.string('challenge').notNullable().unique()
+      t.string('type').notNullable()
+      t.uuid('user_id').nullable()
+      t.timestamp('expires_at').notNullable()
+      t.timestamp('created_at').notNullable().defaultTo(db.fn.now())
+    })
+    console.log('✅ challenges table created')
+  }
+
+
   console.log('✅ All tables ready')
 }
