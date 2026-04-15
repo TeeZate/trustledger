@@ -4,6 +4,16 @@ import { randomBytes } from 'crypto'
 
 export const merchantRoutes = async (server: FastifyInstance) => {
 
+  // Layer 3 — per merchant API key (1000 req/min)
+  server.addHook('onRequest', async (request, reply) => {
+    const apiKey = request.headers['x-api-key'] as string
+    if (!apiKey) return
+
+    const key = `merchant:${apiKey}`
+    // Rate limit is handled by global limiter
+    // This hook is for future per-key throttling
+  })
+
   // Register a new merchant
   server.post('/merchants/register', async (request, reply) => {
     const { name } = request.body as { name: string }
