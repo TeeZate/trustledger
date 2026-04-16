@@ -132,6 +132,23 @@
   <div class="log" id="log-balance"><span class="dim">Waiting...</span></div>
 </div>
 
+<!-- TOP-UP -->
+<div class="section">
+  <h2>Step 4 — Top Up Wallet (Stripe)</h2>
+  <p style="color:#64748b; font-size:12px; margin-bottom:16px;">
+    Creates a Stripe PaymentIntent. Use test card <strong style="color:#f59e0b">4242 4242 4242 4242</strong>, any future expiry, any CVC.
+  </p>
+  <button id="btn-topup" class="green">Create $20 Top-Up</button>
+  <div class="log" id="log-topup"><span class="dim">Waiting...</span></div>
+</div>
+
+<!-- TOP-UP HISTORY -->
+<div class="section">
+  <h2>Step 5 — Top-Up History</h2>
+  <button id="btn-history">Get Top-Up History</button>
+  <div class="log" id="log-history"><span class="dim">Waiting...</span></div>
+</div>
+
 <script>
   const API = 'http://localhost:3000'
   const { startRegistration, startAuthentication } = SimpleWebAuthnBrowser
@@ -274,22 +291,64 @@
       log('balance', '✗ Login first to get a token', 'err')
       return
     }
-
     log('balance', '⟳ Fetching balance...', 'inf')
-
     try {
       const res = await fetch(API + '/users/' + currentUserId + '/balance', {
-        headers: {
-          'Authorization': 'Bearer ' + currentToken,
-          'Content-Type':  'application/json'
-        }
+        headers: { 'Authorization': 'Bearer ' + currentToken }
       })
       const result = await res.json()
       logAppend('balance', '✓ Balance: $' + result.balance, 'ok')
-      logAppend('balance', '  User ID: ' + result.user_id, 'ok')
       logAppend('balance', '  Reputation: ' + result.reputation, 'ok')
     } catch (err) {
       logAppend('balance', '✗ ' + err.message, 'err')
+    }
+  })
+
+  // ── Top-Up ────────────────────────────────────────────────────
+
+  document.getElementById('btn-topup').addEventListener('click', async () => {
+    if (!currentToken) { log('topup', '✗ Login first', 'err'); return }
+    log('topup', '⟳ Creating PaymentIntent...', 'inf')
+    try {
+      const res = await fetch(API + '/wallet/topup/create', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + currentToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: 20 })
+      })
+      const result = await res.json()
+      if (result.payment_intent_id) {
+        logAppend('topup', '✓ PaymentIntent created', 'ok')
+        logAppend('topup', '  ID: ' + result.payment_intent_id, 'ok')
+        logAppend('topup', '  Now run in PowerShell:', 'inf')
+        logAppend('topup', '  & "C:\\Users\\HomePC\\Downloads\\stripe_1.40.6_windows_x86_64\\stripe.exe" payment_intents confirm ' + result.payment_intent_id + ' --payment-method pm_card_visa', 'inf')
+      } else {
+        logAppend('topup', '✗ ' + JSON.stringify(result), 'err')
+      }
+    } catch (err) {
+      logAppend('topup', '✗ ' + err.message, 'err')
+    }
+  })
+
+  // ── History ───────────────────────────────────────────────────
+
+  document.getElementById('btn-history').addEventListener('click', async () => {
+    if (!currentToken) { log('history', '✗ Login first', 'err'); return }
+    log('history', '⟳ Fetching top-up history...', 'inf')
+    try {
+      const res = await fetch(API + '/wallet/topups', {
+        headers: { 'Authorization': 'Bearer ' + currentToken }
+      })
+      const result = await res.json()
+      if (result.topups) {
+        logAppend('history', '✓ ' + result.topups.length + ' top-up(s)', 'ok')
+        result.topups.forEach(t => {
+          logAppend('history', '  $' + t.amount + ' — ' + t.status + ' — ' + new Date(t.created_at).toLocaleString(), 'ok')
+        })
+      } else {
+        logAppend('history', '✗ ' + JSON.stringify(result), 'err')
+      }
+    } catch (err) {
+      logAppend('history', '✗ ' + err.message, 'err')
     }
   })
 </script>

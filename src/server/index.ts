@@ -4,12 +4,15 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import dotenv from 'dotenv'
 import { resolve } from 'path'
+import { readFileSync } from 'fs'
 import { testConnection } from '../db/index'
 import { merchantRoutes } from './routes/merchants'
 import { userRoutes } from './routes/users'
-import { validateEnv } from './config'
 import { authRoutes } from './routes/auth'
-import { readFileSync } from 'fs'
+import { walletRoutes } from './routes/wallet'
+import { validateEnv } from './config'
+import rawBody from 'fastify-raw-body'
+import { payoutRoutes } from './routes/payouts'
 
 dotenv.config({ path: resolve(process.cwd(), '.env') })
 
@@ -23,16 +26,14 @@ const server = Fastify({
 const start = async () => {
   try {
 
-    // Register security plugins FIRST before any routes
     await server.register(helmet)
 
     await server.register(cors, {
-          origin: process.env.NODE_ENV === 'development'
-            ? ['http://localhost:5173', 'http://localhost:3000']
-            : false
-        })
+      origin: process.env.NODE_ENV === 'development'
+        ? ['http://localhost:5173', 'http://localhost:3000']
+        : false
+    })
 
-    // Rate limiting registered before routes — critical
     await server.register(rateLimit, {
       global: true,
       max: 100,
@@ -51,6 +52,13 @@ const start = async () => {
       })
     })
 
+    await server.register(rawBody, {
+      field: 'rawBody',
+      global: false,
+      encoding: 'utf8',
+      runFirst: true
+    })
+
     // Health check
     server.get('/health', async () => {
       const dbAlive = await testConnection()
@@ -62,22 +70,22 @@ const start = async () => {
       }
     })
 
+    // Test page — development only
+    if (process.env.NODE_ENV === 'development') {
+      server.get('/test', async (request, reply) => {
+        const html = readFileSync(
+          resolve(process.cwd(), 'passkey-test.html'),
+          'utf-8'
+        )
+        return reply.type('text/html').send(html)
+      })
+    }
 
-  // Test page — development only
-  if (process.env.NODE_ENV === 'development') {
-    server.get('/test', async (request, reply) => {
-      const html = readFileSync(
-        resolve(process.cwd(), 'passkey-test.html'),
-        'utf-8'
-      )
-      return reply.type('text/html').send(html)
-    })
-  }
-
-    // Routes registered AFTER rate limiter
     server.register(merchantRoutes)
     server.register(userRoutes)
     server.register(authRoutes)
+    server.register(walletRoutes)
+    server.register(payoutRoutes)
 
     await server.listen({
       port: Number(process.env.PORT) || 3000,
