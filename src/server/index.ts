@@ -13,6 +13,8 @@ import { walletRoutes } from './routes/wallet'
 import { validateEnv } from './config'
 import rawBody from 'fastify-raw-body'
 import { payoutRoutes } from './routes/payouts'
+import { runAudit } from './audit'
+import { auditRoutes } from './routes/audit'
 
 dotenv.config({ path: resolve(process.cwd(), '.env') })
 
@@ -86,6 +88,25 @@ const start = async () => {
     server.register(authRoutes)
     server.register(walletRoutes)
     server.register(payoutRoutes)
+    server.register(auditRoutes)
+
+    // Nightly audit — runs at midnight every day
+    const scheduleNightlyAudit = () => {
+      const now     = new Date()
+      const midnight = new Date()
+      midnight.setHours(24, 0, 0, 0)
+      const msUntilMidnight = midnight.getTime() - now.getTime()
+
+      setTimeout(async () => {
+        console.log('🔍 Running nightly audit...')
+        await runAudit()
+        scheduleNightlyAudit()  // Schedule next night
+      }, msUntilMidnight)
+
+      console.log(`⏰ Next audit scheduled in ${Math.round(msUntilMidnight / 1000 / 60)} minutes`)
+    }
+
+    scheduleNightlyAudit()
 
     await server.listen({
       port: Number(process.env.PORT) || 3000,
