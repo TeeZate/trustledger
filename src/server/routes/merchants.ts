@@ -153,4 +153,41 @@ export const merchantRoutes = async (server: FastifyInstance) => {
 
     return reply.send({ endpoints })
   })
+
+  // Merchant dashboard data
+  server.get('/merchants/:api_key/dashboard', async (request, reply) => {
+    const { api_key } = request.params as { api_key: string }
+
+    const merchant = await db('merchants')
+      .where({ api_key, active: true })
+      .first()
+
+    if (!merchant) {
+      return reply.status(401).send({ error: 'Invalid API key' })
+    }
+
+    const endpoints = await db('endpoints')
+      .where({ merchant_id: merchant.id })
+      .orderBy('created_at', 'desc')
+
+    const recent = await db('ledger')
+      .where({ merchant_id: merchant.id })
+      .orderBy('created_at', 'desc')
+      .limit(20)
+
+    const totalTransactions = await db('ledger')
+      .where({ merchant_id: merchant.id })
+      .count('id as count')
+      .first()
+
+    return reply.send({
+      merchant_id:        merchant.id,
+      name:               merchant.name,
+      balance:            Number(merchant.balance),
+      total_earned:       Number(merchant.total_earned),
+      total_transactions: Number(totalTransactions?.count || 0),
+      endpoints,
+      recent
+    })
+  })
 }
