@@ -30,12 +30,12 @@ const start = async () => {
 
     await server.register(helmet)
 
-    await server.register(cors, {
+await server.register(cors, {
       origin: process.env.NODE_ENV === 'development'
-        ? ['http://localhost:5173', 'http://localhost:3000']
+        ? ['http://localhost:5173', 'http://localhost:5174','http://localhost:3000',
+           'http://localhost:5175', 'http://localhost:5176']
         : false
     })
-
     await server.register(rateLimit, {
       global: true,
       max: 100,
