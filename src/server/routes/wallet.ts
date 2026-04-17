@@ -4,18 +4,16 @@ import Stripe from 'stripe'
 import dotenv from 'dotenv'
 import { resolve } from 'path'
 
-
 dotenv.config({ path: resolve(process.cwd(), '.env') })
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-apiVersion: '2026-03-25.dahlia'
+  apiVersion: '2026-03-25.dahlia'
 })
 
-const MINIMUM_TOPUP = 20.00  // $20 minimum
+const MINIMUM_TOPUP = 20.00
 
 export const walletRoutes = async (server: FastifyInstance) => {
 
-  // ── 3.03 CREATE PAYMENT INTENT ───────────────────────────────
   server.post('/wallet/topup/create', async (request, reply) => {
     const { user_id, amount } = request.body as {
       user_id: string
@@ -23,49 +21,41 @@ export const walletRoutes = async (server: FastifyInstance) => {
     }
 
     if (!user_id || !amount) {
-      return reply.status(400).send({
-        error: 'user_id and amount required'
-      })
+      return reply.status(400).send({ error: 'user_id and amount required' })
     }
 
     if (amount < MINIMUM_TOPUP) {
       return reply.status(400).send({
-        error: `Minimum top-up amount is $${MINIMUM_TOPUP}`,
+        error:   `Minimum top-up amount is $${MINIMUM_TOPUP}`,
         minimum: MINIMUM_TOPUP
       })
     }
 
     if (amount > 1000) {
-      return reply.status(400).send({
-        error: 'Maximum top-up amount is $1,000'
-      })
+      return reply.status(400).send({ error: 'Maximum top-up amount is $1,000' })
     }
 
-    // Verify user exists
-    const user = await db('users')
-      .where({ id: user_id })
-      .first()
+    const user = await db('users').where({ id: user_id }).first()
 
     if (!user) {
       return reply.status(404).send({ error: 'User not found' })
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-          amount:   Math.round(amount * 100),
-          currency: 'usd',
-          automatic_payment_methods: {
-            enabled:         true,
-            allow_redirects: 'never'
-          },
-          metadata: {
-            user_id,
-            type:     'wallet_topup',
-            platform: 'synthpay'
-          },
-          description: `SynthPay wallet top-up for user ${user_id}`,
-        })
+      amount:   Math.round(amount * 100),
+      currency: 'usd',
+      automatic_payment_methods: {
+        enabled:         true,
+        allow_redirects: 'never'
+      },
+      metadata: {
+        user_id,
+        type:     'wallet_topup',
+        platform: 'synthpay'
+      },
+      description: `SynthPay wallet top-up for user ${user_id}`,
+    })
 
-    // Record pending top-up
     await db('topups').insert({
       user_id,
       amount,
@@ -81,7 +71,6 @@ export const walletRoutes = async (server: FastifyInstance) => {
     })
   })
 
-  // ── 3.04 STRIPE WEBHOOK ──────────────────────────────────────
   server.post('/wallet/topup/webhook', {
     config: { rawBody: true }
   }, async (request, reply) => {
@@ -91,7 +80,7 @@ export const walletRoutes = async (server: FastifyInstance) => {
       return reply.status(400).send({ error: 'Missing stripe-signature header' })
     }
 
-    let event: Stripe.Event | any
+    let event: any
 
     try {
       event = stripe.webhooks.constructEvent(
@@ -104,21 +93,14 @@ export const walletRoutes = async (server: FastifyInstance) => {
       return reply.status(400).send({ error: `Webhook error: ${err.message}` })
     }
 
-
-    // // Debug
-    // console.log('Webhook event type:', event.type)
-    // console.log('Webhook metadata:', (event.data.object as any).metadata)
-
-    // ── Handle payment succeeded ──────────────────────────────
     if (event.type === 'payment_intent.succeeded') {
-      const paymentIntent = event.data.object as unknown as Stripe.PaymentIntent
+      const paymentIntent = event.data.object as any
       const { user_id, type } = paymentIntent.metadata
 
       if (type !== 'wallet_topup' || !user_id) {
         return reply.send({ received: true })
       }
 
-      // Idempotency check — never double-credit
       const topup = await db('topups')
         .where({ stripe_payment_id: paymentIntent.id })
         .first()
@@ -133,16 +115,13 @@ export const walletRoutes = async (server: FastifyInstance) => {
         return reply.send({ received: true })
       }
 
-      const amount = paymentIntent.amount / 100  // Convert cents to dollars
+      const amount = paymentIntent.amount / 100
 
-      // Atomic balance credit
       await db.transaction(async (trx) => {
-        // Credit user balance
         await trx('users')
           .where({ id: user_id })
           .increment('balance', amount)
 
-        // Mark topup as completed
         await trx('topups')
           .where({ stripe_payment_id: paymentIntent.id })
           .update({ status: 'completed' })
@@ -151,9 +130,8 @@ export const walletRoutes = async (server: FastifyInstance) => {
       console.log(`✅ Wallet credited: user ${user_id} +$${amount}`)
     }
 
-    // ── Handle payment failed ─────────────────────────────────
     if (event.type === 'payment_intent.payment_failed') {
-      const paymentIntent = event.data.object as unknown as Stripe.PaymentIntent
+      const paymentIntent = event.data.object as any
 
       await db('topups')
         .where({ stripe_payment_id: paymentIntent.id })
@@ -165,7 +143,6 @@ export const walletRoutes = async (server: FastifyInstance) => {
     return reply.send({ received: true })
   })
 
-  // ── 3.08 TOP-UP HISTORY ───────────────────────────────────────
   server.get('/wallet/topups/:user_id', async (request, reply) => {
     const { user_id } = request.params as { user_id: string }
 
